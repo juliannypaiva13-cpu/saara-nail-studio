@@ -46,7 +46,9 @@ async function corpo(req) {
 // e 'desligado' (padrão da produção até a Fase 5: só /api/saude responde; nada lê ou grava no banco).
 export const ROTAS = [
   { m: 'GET', p: '/api/saude', n: NIVEL.PUBLICO, modos: ['completo', 'teste-passkey', 'desligado'],
-    f: async ({ cfg }) => ({ ok: true, modo: cfg.modo }) },
+    f: async ({ cfg, env }) => ({ ok: true, modo: cfg.modo, banco: env.DB ? 'ligado' : 'não ligado',
+                                  configuracao: env.ORIGEM && env.RP_ID ? 'completa' : 'incompleta',
+                                  reservasReais: false }) },
 
   { m: 'GET', p: '/api/horarios', n: NIVEL.PUBLICO, modos: ['completo'],
     f: async ({ db, url, agora }) => ({ horarios: await R.horariosDoDia(db, { servicoId: url.searchParams.get('servico'), dia: url.searchParams.get('dia'), agoraMs: agora }) }) },
@@ -196,9 +198,12 @@ async function dentroDoLimite(env, db, tipo, ip, agora) {
   if (env.LIMITE && typeof env.LIMITE.limit === 'function') return (await env.LIMITE.limit({ key: chave })).success;
   const [max, jan] = LIMITES[tipo];
   const janela = Math.floor(agora / jan);
-  const r = await db.prepare(`INSERT INTO tentativas (chave, janela, contagem) VALUES (?, ?, 1)
-                              ON CONFLICT (chave, janela) DO UPDATE SET contagem = contagem + 1 RETURNING contagem`).bind(chave, janela).first();
-  return r.contagem <= max;
+  const [, r] = await db.batch([
+    db.prepare('DELETE FROM tentativas WHERE chave = ? AND janela < ?').bind(chave, janela), // limpa janelas velhas
+    db.prepare(`INSERT INTO tentativas (chave, janela, contagem) VALUES (?, ?, 1)
+                ON CONFLICT (chave, janela) DO UPDATE SET contagem = contagem + 1 RETURNING contagem`).bind(chave, janela)
+  ]);
+  return r.results[0].contagem <= max;
 }
 
 async function turnstileOk(env, token, ip, deps) {
@@ -228,6 +233,11 @@ export function criarApp(deps) {
       if (req.method !== 'GET') {
         if (req.headers.get('Origin') !== cfg.origem) return json({ erro: 'origem_recusada' }, 403);
         if (req.headers.get('Sec-Fetch-Site') && req.headers.get('Sec-Fetch-Site') !== 'same-origin') return json({ erro: 'origem_recusada' }, 403);
+      }
+      if (!['desligado', 'teste-passkey', 'completo'].includes(cfg.modo)) return json({ erro: 'modo_invalido' }, 503);
+      if (cfg.modo !== 'desligado' && rota.p !== '/api/saude') {
+        if (!db) return json({ erro: 'banco_nao_ligado', binding: 'DB' }, 503);
+        if (!cfg.origem || !cfg.rpId) return json({ erro: 'configuracao_incompleta', faltando: ['ORIGEM', 'RP_ID'].filter(k => !env[k]) }, 503);
       }
       if (cfg.modo !== 'desligado' && rota.p !== '/api/saude' && !(await garantirEsquema(db, agora)))
         return json({ erro: 'instalando_banco', tenteDeNovo: true }, 503, { 'Retry-After': '1' });

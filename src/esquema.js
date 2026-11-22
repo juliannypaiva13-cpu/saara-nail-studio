@@ -35,6 +35,9 @@ export async function garantirEsquema(db, agoraMs = Date.now()) {
   if (prontos.has(db)) return true;
   await db.prepare('CREATE TABLE IF NOT EXISTS migracoes_aplicadas (nome TEXT PRIMARY KEY, aplicada_em INTEGER NOT NULL)').run();
   const feitas = new Set((await db.prepare('SELECT nome FROM migracoes_aplicadas').all()).results.map(r => r.nome));
+  // Compatível com "wrangler d1 migrations apply": se alguém aplicou as migrações por lá, elas contam como feitas.
+  const wrangler = await db.prepare(`SELECT 1 ok FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations'`).first();
+  if (wrangler) for (const r of (await db.prepare('SELECT name FROM d1_migrations').all()).results) feitas.add(String(r.name).replace(/\.sql$/, ''));
   const pendentes = MIGRACOES.filter(m => !feitas.has(m.nome));
   if (!pendentes.length) { prontos.add(db); return true; }
   const m = pendentes[0];

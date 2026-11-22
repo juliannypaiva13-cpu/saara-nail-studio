@@ -22,9 +22,10 @@ Anote **APROVADO** ou **FALHOU** em cada item e me envie o resultado (pode ser u
 
 | # | Passo | Esperado |
 |---|---|---|
+| B0 | Abrir `/api/saude` | `"banco":"ligado"`, `"reservasReais":false` |
 | B1 | Na seção 5, **Ver situação do banco** e anotar as contagens | Passkeys = 2 (ou mais) |
 | B2 | No dia seguinte, abrir o endereço, **Entrar** e **Ver situação** | As mesmas passkeys, reservas fictícias e auditoria continuam lá |
-| B3 | Cloudflare: D1, `saara-teste-passkey`, **Console**, rodar `SELECT COUNT(*) FROM passkeys;` | Mesmo número da página |
+| B3 | Cloudflare: D1, `saara-nail-studio-db`, **Console**, rodar `SELECT COUNT(*) FROM passkeys;` | Mesmo número da página |
 | B4 | No D1, aba **Time Travel** | Há pontos de restauração dos últimos dias |
 | B5 | Depois de um **Retry deployment**, **Ver situação** | Os dados continuam: publicar não apaga o banco |
 

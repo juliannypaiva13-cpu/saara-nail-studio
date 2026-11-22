@@ -1,128 +1,142 @@
-# Passo a passo: GitHub, Cloudflare e servidor temporário de teste
+# Passo a passo: Cloudflare Pages + D1 (repositório `juliannypaiva13-cpu/saara-nail-studio`)
 
 Regras desta fase:
-- Nada é aberto para clientes.
-- Nenhum serviço pago é criado e nenhum cartão é necessário.
+- Nenhuma reserva real é liberada.
+- Nenhum serviço pago é criado.
 - Nenhuma senha, token ou chave vai para o repositório ou para o chat.
 
-O Cloudflare lê o código do GitHub por uma conexão autorizada. Assim, **nenhuma chave do Cloudflare precisa ficar no GitHub**.
+## 0. Por que a implantação anterior não funcionou
 
----
+O projeto foi criado como **Worker** (Create, Workers, Import a repository, com o comando `npx wrangler deploy`). Um Worker que só tem arquivos estáticos não aceita ligação com banco. Este sistema é um projeto **Pages**:
+- a pasta `functions/` vira a API `/api/*`;
+- a pasta `dist/` vira o site;
+- o `wrangler.toml` tem `pages_build_output_dir`, que é a marca de projeto Pages.
 
-## 1. Enviar o código para o repositório privado `saara-nail-studio`
+O Pages não tem "Deploy command". Só tem Build command e Build output directory.
 
-1. Descompacte `saara-nail-studio.zip` e abra a pasta `saara-nail-studio`.
-2. No GitHub, abra o repositório, clique em **Add file**, depois em **Upload files**.
-3. Arraste **o conteúdo** da pasta (não a pasta em si). Escreva uma mensagem como "Fase 2" e clique em **Commit changes**.
-4. Confira se apareceram as pastas `.github` e `src` e o arquivo `.gitignore`.
-   - Pastas e arquivos que começam com ponto às vezes ficam ocultos e não são enviados.
-   - Se `.github` não aparecer, clique em **Add file**, depois em **Create new file**, e digite o caminho `.github/workflows/testes.yml`.
-   - Cole o conteúdo do arquivo de mesmo nome e faça o commit.
-5. Abra a aba **Actions**. O fluxo **testes** roda sozinho e deve ficar verde. Ele não usa segredo nenhum e não publica nada.
+### 0.1 Remover o Worker criado por engano
 
-Alternativa: o programa **GitHub Desktop** envia a pasta inteira, com os arquivos ocultos.
+1. **Antes de apagar, veja o que ele publicou.**
+   - Abra **Workers & Pages** e clique no Worker. O endereço `…workers.dev` aparece no topo.
+   - Abra no navegador esse endereço e também `/prototipo/index.html`, `/src/app.js` e `/infra/PASSO-A-PASSO.md`.
+   - Se algum abrir, arquivos do repositório ficaram públicos. Isso não expõe senhas, porque não há nenhuma no código. Mesmo assim, apague o Worker já.
+2. Abra o Worker, depois **Settings** (ou **Manage**), e clique em **Delete**. Isso também desliga a ligação automática dele com o GitHub.
+3. No GitHub, procure um *pull request* aberto pelo Cloudflare (por exemplo "Add Wrangler configuration") e **feche sem aceitar**. Se o repositório tiver `wrangler.json` ou `wrangler.jsonc`, apague. O build recusa os dois de propósito.
 
-## 2. Ver se o endereço `saaranailstudio.pages.dev` está livre
+## 1. Atualizar o repositório
 
-1. **Antes de criar**, abra `https://saaranailstudio.pages.dev` no navegador.
-   - Se aparecer um site, o nome já é de outra pessoa. **Pare aqui e me avise.**
-   - Se aparecer erro de "site não encontrado", o nome provavelmente está livre. A confirmação de verdade vem no passo 3.
-2. **Depois de criar** o projeto (passo 3), o painel mostra o endereço no topo do projeto.
-   - Ele precisa ser **exatamente** `saaranailstudio.pages.dev`.
-   - Se aparecer com algo a mais (por exemplo `saaranailstudio-4xk.pages.dev`), o nome estava ocupado. Apague o projeto em **Settings**, depois **General**, depois **Delete project**, e me avise.
-   - **Não use o endereço alternativo** sem a sua autorização.
+Envie o conteúdo de `saara-nail-studio.zip` para o ramo `main`, substituindo os arquivos (no GitHub: **Add file**, depois **Upload files**).
 
-## 3. Conectar o GitHub ao Cloudflare Pages
+Confira se estes itens aparecem no repositório:
+- `wrangler.toml` na raiz;
+- a pasta `.github/workflows`;
+- o arquivo `.gitignore`.
 
-1. No Cloudflare, abra **Workers & Pages** e clique em **Create**.
-2. Na aba **Pages**, escolha **Import an existing Git repository** (ou **Connect to Git**).
-3. Autorize o app **Cloudflare Workers and Pages** no GitHub.
-   - Escolha **Only select repositories** e marque só `saara-nail-studio`.
-   - O app recebe leitura do código e permissão para marcar o resultado das publicações. Ele não acessa outros repositórios.
-4. Selecione o repositório e preencha:
+## 2. Banco D1 `saara-nail-studio-db`
+
+1. Abra **Storage & Databases**, depois **D1 SQL Database**.
+   - Se o banco `saara-nail-studio-db` ainda não existir, clique em **Create** e use esse nome. Localização: automática.
+2. Abra o banco e copie o **Database ID**. É um código no formato `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`.
+3. No GitHub, abra `wrangler.toml` e clique no lápis para editar.
+   - Troque `COLE_AQUI_O_DATABASE_ID` pelo ID copiado e faça o commit no `main`.
+   - O ID é um identificador, não uma senha: ninguém acessa o banco só com ele.
+   - **Sem isso, o build no Cloudflare para** com a mensagem "database_id … não é um ID de D1".
+4. **Não crie tabelas no Console.** O sistema cria as tabelas sozinho no primeiro acesso ao servidor de teste.
+   - Se alguém já usou `wrangler d1 migrations apply`, tudo bem: o sistema reconhece.
+   - Criar tabelas à mão no Console pode deixar o banco incompleto.
+
+Binding exigido pelo código: **`DB`**. O código usa `env.DB` em `src/app.js`, e o binding já está declarado no `wrangler.toml`.
+
+## 3. Criar o projeto Pages e conectar o GitHub
+
+1. Abra **Workers & Pages** e clique em **Create**. Escolha a aba **Pages** e depois **Import an existing Git repository** (ou **Connect to Git**).
+   - Não use a aba Workers.
+   - Se a tela só oferecer Worker, procure o link "Looking to deploy Pages? Get started".
+2. Autorize o app **Cloudflare Workers and Pages** no GitHub com **Only select repositories** e marque só `saara-nail-studio`.
+3. Escolha `juliannypaiva13-cpu/saara-nail-studio` e preencha:
 
 | Campo | Valor |
 |---|---|
-| Project name | `saaranailstudio` |
+| **Project name** | **`saaranailstudio`** (troque o nome sugerido `saara-nail-studio`, que geraria outro endereço) |
 | Production branch | `main` |
 | Framework preset | None |
-| Build command | `npm install --no-audit --no-fund && npm run build` |
+| Build command | `npm run build` |
 | Build output directory | `dist` |
 | Root directory | (vazio) |
-| Variável de build | `NODE_VERSION` = `22` |
 
-5. Clique em **Save and Deploy**.
-   - O Cloudflare faz uma primeira publicação do ramo `main`.
-   - Ela contém **só** a página "Sistema em preparação", que orienta a agendar pelo WhatsApp.
-   - A API dessa publicação fica em modo **desligado**: só responde `/api/saude` e não tem banco.
-6. Confira o endereço (passo 2.2).
+4. Clique em **Save and Deploy**.
+   - O Pages instala as dependências do `package.json` sozinho e roda `npm run build`.
+   - No log deve aparecer `✔ ramo: main · dist: _headers, _routes.json, index.html`.
+5. **Confira o endereço** no topo do projeto. Ele precisa ser exatamente `saaranailstudio.pages.dev`.
+   - Se vier com algo a mais (por exemplo `saaranailstudio-4xk.pages.dev`), o nome estava ocupado.
+   - Nesse caso, apague o projeto (**Settings**, depois **Delete project**) e me avise. Não use outro endereço sem autorização.
+6. Abra `https://saaranailstudio.pages.dev/api/saude`. O esperado é:
+   `{"ok":true,"modo":"desligado","banco":"não ligado","configuracao":"completa","reservasReais":false}`
+   E `https://saaranailstudio.pages.dev` mostra "Sistema em preparação".
 
-## 4. Impedir publicações automáticas da produção
+## 4. Travar a produção e liberar só o ramo de teste
 
-Em **Settings**, depois **Builds**, depois **Branch control**:
-
-- Desmarque **Enable automatic production branch deployments**. Assim, nada novo vai para `saaranailstudio.pages.dev` sem você mandar.
+Abra **Settings**, depois **Builds**, depois **Branch control**:
+- Desmarque **Enable automatic production branch deployments**.
 - Em **Preview branch**, escolha **Custom branches** e inclua só `teste-passkey`.
 
-## 5. Criar o banco de teste (D1, grátis)
+## 5. Variáveis e segredos
 
-1. Abra **Storage & Databases**, depois **D1 SQL Database**, depois **Create**.
-2. Nome: `saara-teste-passkey`. Localização: automática.
-3. Não precisa criar tabelas. O sistema cria sozinho no primeiro acesso.
+As variáveis comuns já estão no `wrangler.toml`. Os valores não são inventados: saem do endereço autorizado.
 
-## 6. Ligações, variáveis e segredo (só no painel do Cloudflare)
+| Ambiente | Nome | Valor | Onde |
+|---|---|---|---|
+| Produção | `MODO` | `desligado` | `wrangler.toml` |
+| Produção | `ORIGEM` / `RP_ID` | `https://saaranailstudio.pages.dev` / `saaranailstudio.pages.dev` | `wrangler.toml` |
+| Prévia | `MODO` | `teste-passkey` | `wrangler.toml` |
+| Prévia | `ORIGEM` / `RP_ID` | `https://teste-passkey.saaranailstudio.pages.dev` / `teste-passkey.saaranailstudio.pages.dev` | `wrangler.toml` |
+| Prévia | `DB` (banco) | `saara-nail-studio-db` + o seu Database ID | `wrangler.toml` |
 
-No projeto `saaranailstudio`, abra **Settings**. Escolha o ambiente **Preview** (é o do teste).
+**Cadastro manual no painel: só 1 segredo, e só na prévia.**
 
-**Bindings**: clique em **Add**, depois **D1 database**.
-- Variable name: `DB`
-- Banco: `saara-teste-passkey`
-- Ambiente: **Preview apenas**. Não ligue banco na Production.
+| Ambiente | Nome | Tipo | Valor |
+|---|---|---|---|
+| **Preview** | `INSTALACAO_SEGREDO` | **Secret** (criptografado) | Você mesma cria: senha aleatória com **32 caracteres ou mais** |
 
-**Variables and Secrets** (ambiente Preview):
-
-| Nome | Tipo | Valor |
-|---|---|---|
-| `MODO` | Text | `teste-passkey` |
-| `ORIGEM` | Text | `https://teste-passkey.saaranailstudio.pages.dev` |
-| `RP_ID` | Text | `teste-passkey.saaranailstudio.pages.dev` |
-| `INSTALACAO_SEGREDO` | **Secret** | Senha longa e aleatória, com 32 caracteres ou mais |
-
-Para criar o segredo de instalação:
-- Gere a senha no gerenciador de senhas do celular (Chaves do iCloud, Gerenciador de Senhas do Google ou Bitwarden) e guarde-a lá.
-- Não mande essa senha no chat.
+- Caminho: **Settings**, depois **Variables and Secrets**, ambiente **Preview**, **Add**, tipo **Secret**.
+- Gere a senha no gerenciador de senhas do celular e guarde-a lá. Não mande no chat.
 - Ela serve só para gerar os convites de primeiro acesso. Quando Saara e Julianny tiverem passkey, ela deixa de funcionar.
+- Na produção, nenhum segredo é necessário.
 
-**Variables and Secrets** (ambiente Production): nada é obrigatório. Opcionalmente, `MODO` = `desligado`. Sem essa variável, o sistema já fica desligado.
+Para eu checar sem você me mandar valores:
+- Como o `wrangler.toml` é a fonte da verdade, as variáveis comuns aparecem no painel como gerenciadas pelo arquivo.
+- Se o painel não deixar adicionar o segredo, me diga qual mensagem aparece.
 
-**Runtime** (os dois ambientes):
-- Compatibility date: `2026-11-01`
-- Compatibility flags: `nodejs_compat`
-
-## 7. Publicar o servidor temporário
+## 6. Primeira implantação do servidor de teste
 
 1. No GitHub, abra o seletor de ramos (**main**), digite `teste-passkey` e clique em **Create branch teste-passkey from main**.
-2. O Cloudflare publica sozinho em `https://teste-passkey.saaranailstudio.pages.dev`.
-3. Se você mudar variáveis depois, abra **Deployments**, escolha a publicação do ramo e clique em **Retry deployment**. As mudanças só valem em publicações novas.
-4. Confira:
-   - `https://teste-passkey.saaranailstudio.pages.dev/api/saude` mostra `"modo":"teste-passkey"`.
-   - `https://saaranailstudio.pages.dev/api/saude` mostra `"modo":"desligado"`.
+2. O Pages publica em `https://teste-passkey.saaranailstudio.pages.dev`. No log deve aparecer `✔ ramo: teste-passkey · dist: …, teste.js`.
+3. Abra `https://teste-passkey.saaranailstudio.pages.dev/api/saude`. O esperado é `"modo":"teste-passkey"`, `"banco":"ligado"` e `"reservasReais":false`.
+   - Se aparecer `"banco":"não ligado"`, o `database_id` não foi salvo no `wrangler.toml` do ramo `teste-passkey`. Confira e faça um novo commit.
+4. Se você criou o segredo depois da publicação, abra **Deployments** e clique em **Retry deployment** na publicação do ramo.
+5. Siga `infra/ROTEIRO-DE-TESTES.md`.
 
-Siga então o roteiro `infra/ROTEIRO-DE-TESTES.md`.
+## 7. O que continua desligado (de propósito)
 
-## 8. Desligar o servidor temporário (ao final da avaliação)
+- **Reservas reais:** a rota `/api/reservas` só existe no modo `completo`, que nenhuma configuração usa.
+  - Produção: `desligado`. Prévia: `teste-passkey`, só com reservas "TESTE FICTÍCIO".
+  - O build recusa `MODO = "completo"`.
+- **Protótipo:** fica em `prototipo/` e nunca entra no `dist/`.
+- **Rotinas automáticas** (`worker-cron/`), **comprovantes reais (R2)** e **Turnstile:** ficam para a Fase 3.
+- **Banco de produção:** o `saara-nail-studio-db` recebe só dados de teste. Antes da Fase 5, decidimos se ele é zerado ou se criamos um banco limpo para a produção.
 
-1. No GitHub, apague o ramo `teste-passkey`. Isso impede novas publicações.
-2. No Cloudflare, abra **Deployments**. Apague as publicações de Preview no menu "…", opção **Delete**.
-3. Em **Settings**, depois **Bindings** (Preview), remova `DB`. Em **Variables and Secrets** (Preview), remova `INSTALACAO_SEGREDO`.
-4. Em **D1**, abra `saara-teste-passkey`, depois **Settings**, depois **Delete**.
-5. O projeto `saaranailstudio` continua existindo, só para garantir o endereço, com a produção desligada.
+## 8. Desligar o servidor de teste ao final
+
+1. Apague o ramo `teste-passkey` no GitHub.
+2. Apague as publicações de Preview em **Deployments**.
+3. Remova `INSTALACAO_SEGREDO`.
+4. Se não for reaproveitar o banco, apague `saara-nail-studio-db` (D1, depois **Settings**, depois **Delete**).
 
 ## Permissões, em resumo
 
 | Quem | Acesso |
 |---|---|
-| App Cloudflare no GitHub | Só o repositório `saara-nail-studio` (leitura do código e status das publicações) |
-| GitHub Actions | Só lê o código para rodar os testes. Nenhum segredo |
-| Painel Cloudflare | Guarda as variáveis e o segredo de instalação (criptografado) |
-| Claude (opcional) | Ver a resposta no chat sobre como conectar o GitHub |
+| App Cloudflare no GitHub | Só o repositório `saara-nail-studio` |
+| GitHub Actions | Só roda os testes. Nenhum segredo |
+| Painel Cloudflare | O segredo `INSTALACAO_SEGREDO` (criptografado) |
+| Claude (opcional) | Para eu enviar o código direto: conectar o GitHub no claude.ai e dar ao app do Claude acesso só a esse repositório, com leitura e escrita de conteúdo |

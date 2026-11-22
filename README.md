@@ -1,6 +1,6 @@
 # Saara Nail Studio: sistema de agendamento
 
-Repositório **privado**. Fase 2: infraestrutura de desenvolvimento e testes.
+Repositório **privado** `juliannypaiva13-cpu/saara-nail-studio`. Plataforma: **Cloudflare Pages** + banco **D1** (`saara-nail-studio-db`, binding `DB`). Fase 2: desenvolvimento e testes.
 **Ainda não é para uso de clientes.** A abertura ao público só acontece depois da Fase 5 e da aprovação expressa da Saara.
 
 | Pasta | O que tem |
@@ -13,7 +13,10 @@ Repositório **privado**. Fase 2: infraestrutura de desenvolvimento e testes.
 | `prototipo/` | Protótipo aprovado, só como referência (não é publicado) |
 | `testes/` | Testes automáticos (`npm test`) |
 | `worker-cron/` | Rotinas a cada 5 min (Fase 3; ainda não publicado) |
+| `wrangler.toml` | Configuração do Pages (variáveis comuns e ligação `DB`). Sem segredos |
 | `infra/` | Passo a passo do Cloudflare e roteiro de testes reais |
+
+Build: `npm run build` → `dist`. Testes: `npm test` (Node 22.5 ou mais novo).
 
 Nenhuma senha, token ou chave fica no repositório. As configurações e o segredo de instalação ficam só no painel do Cloudflare.
 Veja `infra/PASSO-A-PASSO.md`.

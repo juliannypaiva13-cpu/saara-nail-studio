@@ -262,3 +262,9 @@ test('produção desligada por padrão (até a Fase 5): só /api/saude responde,
   assert.equal((await (await r('GET', '/api/saude')).json()).modo, 'desligado');
   for (const rota of ROTAS.filter(x => x.p !== '/api/saude')) assert.equal((await r(rota.m, rota.p)).status, 404, rota.p);
 });
+
+test('limite de tentativas não acumula registros antigos', async () => {
+  const amb = ambiente();
+  for (let i = 0; i < 4; i++) { await amb.chamar('POST', '/api/auth/recuperar', { corpo: { codigo: 'AAAAA-BBBBB' } }); amb.relogio.andar(16 * MIN); }
+  assert.equal((await amb.db.prepare(`SELECT COUNT(*) n FROM tentativas WHERE chave LIKE 'recuperar:%'`).first()).n, 1);
+});

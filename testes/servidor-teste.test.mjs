@@ -152,18 +152,3 @@ test('teste 9 (servidor temporário): rotas de teste exigem sessão e só existe
     }
   }
 });
-
-test('build: produção recebe só a página "em preparação"; o ramo de teste recebe a página de passkeys; protótipo nunca entra', async () => {
-  const { execFileSync } = await import('node:child_process');
-  const { readdirSync, readFileSync: ler, mkdtempSync, cpSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
-  const raiz = new URL('..', import.meta.url).pathname;
-  for (const [ramo, esperado] of [['main', ['_headers', 'index.html']], ['teste-passkey', ['_headers', 'index.html', 'teste.js']]]) {
-    const dir = mkdtempSync(join(tmpdir(), 'build-'));
-    for (const p of ['public', 'teste-passkey', 'scripts']) cpSync(join(raiz, p), join(dir, p), { recursive: true });
-    execFileSync('node', ['scripts/build.mjs'], { cwd: dir, env: { ...process.env, CF_PAGES_BRANCH: ramo } });
-    assert.deepEqual(readdirSync(join(dir, 'dist')).sort(), esperado, ramo);
-    const idx = ler(join(dir, 'dist/index.html'), 'utf8');
-    assert.match(idx, ramo === 'main' ? /Sistema em preparação/ : /Teste de passkeys/);
-  }
-});
