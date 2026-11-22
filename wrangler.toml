@@ -8,6 +8,8 @@
 
 name = "saaranailstudio"                 # endereço autorizado: saaranailstudio.pages.dev
 pages_build_output_dir = "./dist"
+[assets]
+directory = "./dist"
 compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
 
