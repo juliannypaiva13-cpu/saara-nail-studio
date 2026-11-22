@@ -1,0 +1,14 @@
+# Worker de rotina (cron). Não será publicado na Fase 2: depende do banco de produção (Fase 3 em diante).
+name = "saara-rotinas"
+main = "index.js"
+compatibility_date = "2026-11-01"
+workers_dev = false          # sem endereço público
+preview_urls = false
+
+[triggers]
+crons = ["*/5 * * * *"]      # 1 dos 5 crons gratuitos da conta
+
+[[d1_databases]]
+binding = "DB"
+database_name = "saara-producao"
+database_id = "CRIADO_NA_FASE_3"

@@ -1,0 +1,21 @@
+name: testes
+# Roda a cada envio ao repositório. Não usa nenhum segredo e não publica nada.
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: Testes (regras, reservas, concorrência, acesso, servidor de teste)
+        run: npm test
+      - name: Acesso com a biblioteca de passkeys de produção (@simplewebauthn/server)
+        run: npm run test:producao
+      - name: Montagem do site (produção e teste)
+        run: CF_PAGES_BRANCH=main npm run build && CF_PAGES_BRANCH=teste-passkey npm run build
