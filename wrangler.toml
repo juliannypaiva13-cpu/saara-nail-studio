@@ -30,9 +30,9 @@ RP_ID = "teste-passkey.saaranailstudio.pages.dev"
 [[env.preview.d1_databases]]
 binding = "DB"                            # nome exigido pelo código (env.DB em src/app.js)
 database_name = "saara-nail-studio-db"
-database_id = "COLE_AQUI_O_DATABASE_ID"   # copie do painel: Storage & Databases > D1 > saara-nail-studio-db
+database_id = "d789fce8-e3a7-42c7-8d55-7ef69b514c02"   # copie do painel: Storage & Databases > D1 > saara-nail-studio-db
 migrations_dir = "migrations"
 
 [[env.preview.kv_namespaces]]
 binding = "COMPROVANTES"                  # comprovantes de Pix, privados (src/comprovantes.js usa env.COMPROVANTES)
-id = "COLE_AQUI_O_ID_DO_KV"               # copie do painel: Storage & Databases > KV > saara-comprovantes
+id = "e0744d54de774b23b64a051317459b41"               # copie do painel: Storage & Databases > KV > saara-comprovantes
