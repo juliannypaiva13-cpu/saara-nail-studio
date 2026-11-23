@@ -2,7 +2,7 @@
 // Mesma interface: prepare().bind().first()/all()/run(), batch() atômico e exec().
 // Cada await devolve o controle, então pedidos "simultâneos" se intercalam como no Worker real.
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 class Comando {
   constructor(banco, sql, params = []) { this.banco = banco; this.sql = sql; this.params = params; }
@@ -46,9 +46,12 @@ export class D1Local {
 }
 
 export function bancoDeTeste(caminho) {
+  const d = new D1Local(caminho);
   const base = new URL('../migrations/', import.meta.url);
-  const d = new D1Local(caminho).migrar(new URL('0001_inicial.sql', base), new URL('0002_dados_iniciais.sql', base));
-  d.db.exec(`CREATE TABLE migracoes_aplicadas (nome TEXT PRIMARY KEY, aplicada_em INTEGER NOT NULL);
-             INSERT INTO migracoes_aplicadas VALUES ('0001_inicial', 0), ('0002_dados_iniciais', 0);`);
+  d.db.exec('CREATE TABLE migracoes_aplicadas (nome TEXT PRIMARY KEY, aplicada_em INTEGER NOT NULL)');
+  for (const f of readdirSync(base).filter(f => /^\d{4}_.+\.sql$/.test(f)).sort()) {
+    d.db.exec(readFileSync(new URL(f, base), 'utf8'));
+    d.db.prepare('INSERT INTO migracoes_aplicadas VALUES (?, 0)').run(f.replace(/\.sql$/, ''));
+  }
   return d;
 }

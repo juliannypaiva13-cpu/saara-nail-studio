@@ -12,18 +12,18 @@ compatibility_date = "2025-11-01"
 compatibility_flags = ["nodejs_compat"]
 
 # ─── Produção (ramo main): saaranailstudio.pages.dev ────────────────────────────────────────────────
-# DESLIGADA até a Fase 5 e a autorização expressa: só a página "Sistema em preparação" e /api/saude.
-# Sem banco ligado de propósito: a produção não lê nem grava nada.
+# VITRINE até os testes e a autorização expressa: o site aprovado fica no ar com o agendamento FECHADO
+# (botões levam ao WhatsApp), painel fechado. Sem banco ligado de propósito: a produção não lê nem grava nada.
 [vars]
-MODO = "desligado"
+MODO = "vitrine"
 ORIGEM = "https://saaranailstudio.pages.dev"
 RP_ID = "saaranailstudio.pages.dev"
 
 # ─── Prévia (ramo teste-passkey): teste-passkey.saaranailstudio.pages.dev ──────────────────────────
-# Servidor temporário de teste: passkeys e testes com reservas FICTÍCIAS. Sem reservas reais.
+# HOMOLOGAÇÃO (ambiente de teste): sistema completo — site, agendamento, Pix, painel — só com dados de TESTE.
 # No Pages, variáveis e bancos NÃO são herdados: tudo do ambiente de prévia é declarado aqui.
 [env.preview.vars]
-MODO = "teste-passkey"
+MODO = "homologacao"
 ORIGEM = "https://teste-passkey.saaranailstudio.pages.dev"
 RP_ID = "teste-passkey.saaranailstudio.pages.dev"
 
@@ -32,3 +32,7 @@ binding = "DB"                            # nome exigido pelo código (env.DB em
 database_name = "saara-nail-studio-db"
 database_id = "COLE_AQUI_O_DATABASE_ID"   # copie do painel: Storage & Databases > D1 > saara-nail-studio-db
 migrations_dir = "migrations"
+
+[[env.preview.kv_namespaces]]
+binding = "COMPROVANTES"                  # comprovantes de Pix, privados (src/comprovantes.js usa env.COMPROVANTES)
+id = "COLE_AQUI_O_ID_DO_KV"               # copie do painel: Storage & Databases > KV > saara-comprovantes

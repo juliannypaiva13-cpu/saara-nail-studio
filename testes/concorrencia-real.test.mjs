@@ -16,7 +16,7 @@ if (!isMainThread) {
   const db = new D1Local(arquivo);
   Atomics.wait(new Int32Array(barreira), 0, 0); // todas esperam aqui e partem juntas
   try {
-    await R.criarReservaSite(db, { servicoId: 'f1', dia: '2026-11-24', inicio: 14 * 60, cliente: { nome: `T${i}` }, formaPagamento: 'sinal', agoraMs: AGORA });
+    await R.criarReservaSite(db, { servicoId: 'f1', dia: '2026-11-24', inicio: 14 * 60, cliente: { nome: `T${i}` }, formaPagamento: 'sinal', agoraMs: AGORA, ficticia: true });
     parentPort.postMessage('ok');
   } catch (e) { parentPort.postMessage(e.codigo || String(e.message)); }
 } else {

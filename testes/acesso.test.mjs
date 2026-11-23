@@ -237,13 +237,16 @@ test('teste 9 · acesso indevido: cada rota da tabela é conferida', async () =>
               `administradoras ${relatorio.filter(x => x.nivel === NIVEL.ADMIN).length}, sensíveis ${relatorio.filter(x => x.nivel === NIVEL.REAUT).length})`);
 });
 
-test('servidor temporário de passkeys: reservas, horários e pagamentos não existem nesse modo', async () => {
-  const amb = ambiente('teste-passkey');
-  assert.equal((await amb.chamar('GET', '/api/horarios?servico=f1&dia=2026-11-24')).status, 404);
-  assert.equal((await amb.chamar('POST', '/api/reservas', { corpo: {} })).status, 404);
-  const s = await cadastrar(amb, 'saara');
-  assert.equal((await amb.chamar('GET', '/api/admin/alertas-pagamento', { cookie: s.cookie })).status, 404);
-  assert.equal((await amb.chamar('GET', '/api/saude')).dados.modo, 'teste-passkey');
+test('vitrine (produção até a autorização): agendamento, painel e login fechados; homologação: abertos', async () => {
+  const vit = ambiente('vitrine');
+  for (const [m, p] of [['GET', '/api/horarios?servico=f1&dia=2026-11-24'], ['POST', '/api/reservas'], ['GET', '/api/admin/painel'],
+                        ['POST', '/api/auth/login/opcoes'], ['GET', '/api/reservas/acompanhar?codigo=X'], ['PUT', '/api/reservas/comprovante']])
+    assert.equal((await vit.chamar(m, p, { corpo: {} })).status, 404, `${m} ${p}`);
+  assert.equal((await vit.chamar('GET', '/api/saude')).dados.modo, 'vitrine');
+  assert.equal((await vit.chamar('GET', '/api/publico/config')).dados.reservasAbertas, false);
+  const hom = ambiente('homologacao');
+  assert.equal((await hom.chamar('GET', '/api/publico/config')).dados.reservasAbertas, true);
+  assert.equal((await hom.chamar('GET', '/api/publico/config')).dados.ambiente, 'teste');
 });
 
 test('reserva pelo site via API: prazo de 17 min nunca é exposto à cliente', async () => {
@@ -251,7 +254,7 @@ test('reserva pelo site via API: prazo de 17 min nunca é exposto à cliente', a
   const r = await amb.chamar('POST', '/api/reservas', { corpo: { servico: 'f1', dia: '2026-11-26', inicio: 480, forma: 'sinal', nome: 'Teste', whatsapp: '(99) 9 0000-0000', turnstile: 'humano' } });
   assert.equal(r.status, 200, JSON.stringify(r.dados));
   assert.deepEqual(Object.keys(r.dados).sort(), ['codigo', 'prazoVisivelEm']);
-  const dup = await amb.chamar('POST', '/api/reservas', { corpo: { servico: 'f1', dia: '2026-11-26', inicio: 495, forma: 'sinal', turnstile: 'humano' } });
+  const dup = await amb.chamar('POST', '/api/reservas', { corpo: { servico: 'f1', dia: '2026-11-26', inicio: 495, forma: 'sinal', nome: 'Outra', whatsapp: '99988887777', turnstile: 'humano' } });
   assert.equal(dup.status, 409); assert.equal(dup.dados.erro, 'horario_ocupado');
 });
 

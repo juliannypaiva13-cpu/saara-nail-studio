@@ -78,16 +78,16 @@ test('prazo de 17 min: comprovante que chegou aos 17:01 é recusado e nada muda'
   assert.equal(await statusDe(db, r.id), 'aguardando_comprovante');
 });
 
-test('liberação automática só depois de 17 min + margem de processamento de 2 min', async () => {
+test('liberação automática só depois de 17 min + margem de 3 min (envio autorizado em andamento)', async () => {
   const db = bancoDeTeste();
   const r = await R.criarReservaSite(db, { servicoId: 'postica', dia: TER, inicio: 16 * 60, cliente: cliente(1), formaPagamento: 'integral', agoraMs: AGORA });
   assert.equal(await R.expirarReservas(db, AGORA + 17 * MIN + 1000), 0);
-  assert.equal(await R.expirarReservas(db, AGORA + 19 * MIN), 0, 'exatamente aos 19:00 ainda não');
+  assert.equal(await R.expirarReservas(db, AGORA + 20 * MIN), 0, 'exatamente aos 20:00 ainda não');
   assert.equal(await casasDe(db, r.id), 9);
-  assert.equal(await R.expirarReservas(db, AGORA + 19 * MIN + 1), 1);
+  assert.equal(await R.expirarReservas(db, AGORA + 20 * MIN + 1), 1);
   assert.equal(await statusDe(db, r.id), 'expirado');
   assert.equal(await casasDe(db, r.id), 0);
-  const livres = await R.horariosDoDia(db, { servicoId: 'postica', dia: TER, agoraMs: AGORA + 20 * MIN });
+  const livres = await R.horariosDoDia(db, { servicoId: 'postica', dia: TER, agoraMs: AGORA + 21 * MIN });
   assert.ok(livres.includes(16 * 60));
   const hist = (await db.prepare('SELECT acao FROM historico_agendamento WHERE agendamento_id = ? ORDER BY id').bind(r.id).all()).results.map(x => x.acao);
   assert.deepEqual(hist, ['reserva_provisoria', 'expirada_sem_comprovante']);
@@ -108,7 +108,7 @@ test('comprovante e expiração ao mesmo tempo: sempre um ou outro, nunca os doi
   for (let rodada = 0; rodada < 60; rodada++) {
     const db = bancoDeTeste();
     const r = await R.criarReservaSite(db, { servicoId: 'manicure', dia: TER, inicio: 14 * 60, cliente: cliente(1), formaPagamento: 'sinal', agoraMs: AGORA });
-    const t = AGORA + 17 * MIN, tExp = AGORA + 19 * MIN + 1;
+    const t = AGORA + 17 * MIN, tExp = AGORA + 20 * MIN + 1;
     const env = () => R.registrarComprovante(db, { ...comprovante(r.id, t), agoraMs: tExp });
     const espera = n => new Promise(r => { const f = k => (k ? setImmediate(() => f(k - 1)) : r()); f(n); });
     const exp = async () => { await espera(rodada % 4); return R.expirarReservas(db, tExp); }; // varia quem chega primeiro

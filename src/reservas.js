@@ -10,7 +10,7 @@ export const ATIVOS = ['aguardando_comprovante', 'em_analise', 'aguardando_pix',
 export async function carregarExpediente(db) {
   return (await db.prepare('SELECT dia_semana, inicio_min, fim_min, vigente_desde FROM expediente').all()).results;
 }
-async function servico(db, id) {
+export async function servico(db, id) {
   const s = await db.prepare('SELECT * FROM servicos WHERE id = ? AND ativo = 1').bind(id).first();
   if (!s) throw new ErroRegra('servico_invalido');
   return s;
@@ -19,9 +19,9 @@ async function casasOcupadas(db, dia) {
   const { results } = await db.prepare('SELECT minuto FROM casas_ocupadas WHERE dia = ?').bind(dia).all();
   return new Set(results.map(r => r.minuto));
 }
-const inserirCasa = (db, dia, minuto, agendamentoId) =>
+export const inserirCasa = (db, dia, minuto, agendamentoId) =>
   db.prepare('INSERT INTO casas_ocupadas (dia, minuto, agendamento_id) VALUES (?, ?, ?)').bind(dia, minuto, agendamentoId);
-const historico = (db, agendamentoId, quando, quem, acao, detalhes) =>
+export const historico = (db, agendamentoId, quando, quem, acao, detalhes) =>
   db.prepare('INSERT INTO historico_agendamento (agendamento_id, quando, quem, acao, detalhes) VALUES (?, ?, ?, ?, ?)')
     .bind(agendamentoId, quando, quem, acao, detalhes == null ? null : JSON.stringify(detalhes));
 
@@ -37,25 +37,37 @@ export async function horariosDoDia(db, { servicoId, dia, agoraMs, equipe = fals
  * Reserva provisória feita pela cliente no site: bloqueia o horário por 17 min (a cliente vê 15).
  * Se outra pessoa pegou alguma casa antes, a chave única derruba o lote e nada é gravado.
  */
-export async function criarReservaSite(db, { servicoId, dia, inicio, cliente, formaPagamento, agoraMs }) {
+export async function criarReservaSite(db, { servicoId, dia, inicio, cliente, formaPagamento, agoraMs, ficticia = false }) {
   if (!['sinal', 'integral'].includes(formaPagamento)) throw new ErroRegra('forma_pagamento_invalida');
+  const nome = String(cliente?.nome ?? '').trim().replace(/\s+/g, ' ');
+  const whatsapp = cliente?.whatsapp ? String(cliente.whatsapp).replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '') : null;
+  if (!ficticia) {
+    if (nome.length < 2 || nome.length > 80) throw new ErroRegra('nome_invalido');
+    if (!whatsapp || !/^\d{10,11}$/.test(whatsapp)) throw new ErroRegra('whatsapp_invalido');
+  }
   await expirarReservas(db, agoraMs);
   const s = await servico(db, servicoId);
   const { fim } = validarInicio({ expediente: await carregarExpediente(db), dia, inicio, duracao: s.duracao_min, agoraMs });
-  const id = novoId('ag'), codigo = codigoAgendamento(), clienteId = novoId('cl');
+  const id = novoId('ag'), codigo = codigoAgendamento(), clienteNovo = novoId('cl');
   const cmds = [
-    db.prepare('INSERT INTO clientes (id, nome, whatsapp, criada_em) VALUES (?, ?, ?, ?)')
-      .bind(clienteId, cliente?.nome ?? null, cliente?.whatsapp ?? null, agoraMs),
+    ...comandosCliente(db, { id: clienteNovo, nome: nome || null, whatsapp, agoraMs }),
     db.prepare(`INSERT INTO agendamentos (id, codigo, cliente_id, servico_id, preco_centavos, dia, inicio_min, fim_min, status,
                 origem, forma_pagamento, prazo_visivel_em, prazo_final_em, criado_em, atualizado_em)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'aguardando_comprovante', 'site', ?, ?, ?, ?, ?)`)
-      .bind(id, codigo, clienteId, s.id, s.preco_centavos, dia, inicio, fim, formaPagamento,
+                VALUES (?, ?, ${whatsapp ? '(SELECT id FROM clientes WHERE whatsapp = ?)' : '?'}, ?, ?, ?, ?, ?, 'aguardando_comprovante', 'site', ?, ?, ?, ?, ?)`)
+      .bind(id, codigo, whatsapp ?? clienteNovo, s.id, s.preco_centavos, dia, inicio, fim, formaPagamento,
             agoraMs + PRAZO_VISIVEL_MS, agoraMs + PRAZO_FINAL_MS, agoraMs, agoraMs),
     ...casasDoAtendimento(inicio, fim).map(m => inserirCasa(db, dia, m, id)),
     historico(db, id, agoraMs, 'cliente', 'reserva_provisoria', { dia, inicio, fim, forma: formaPagamento })
   ];
   await lote(db, cmds);
   return { id, codigo, prazoVisivelEm: agoraMs + PRAZO_VISIVEL_MS, prazoFinalEm: agoraMs + PRAZO_FINAL_MS };
+}
+
+/** Ficha da cliente: uma por WhatsApp. Quem volta reaproveita a ficha (os dados antigos não são sobrescritos). */
+export function comandosCliente(db, { id, nome, whatsapp, agoraMs }) {
+  if (!whatsapp) return [db.prepare('INSERT INTO clientes (id, nome, whatsapp, criada_em) VALUES (?, ?, NULL, ?)').bind(id, nome, agoraMs)];
+  return [db.prepare(`INSERT INTO clientes (id, nome, whatsapp, criada_em) VALUES (?, ?, ?, ?)
+                      ON CONFLICT (whatsapp) WHERE whatsapp IS NOT NULL DO NOTHING`).bind(id, nome, whatsapp, agoraMs)];
 }
 
 /**
@@ -79,15 +91,17 @@ export async function expirarReservas(db, agoraMs) {
  * nunca do navegador. Aceito até o prazo final de 17 min; depois disso é recusado e nada muda.
  * O pagamento entra "em análise" e o horário continua bloqueado até decisão de Saara ou Julianny.
  */
-export async function registrarComprovante(db, { agendamentoId, objeto, etag, tipo, tamanho, recebidoEmMs, agoraMs }) {
+export async function registrarComprovante(db, { agendamentoId, objeto, etag, tipo, tamanho, recebidoEmMs, agoraMs, emitidaEmMs = null, extras = [] }) {
   const ag = await db.prepare('SELECT * FROM agendamentos WHERE id = ?').bind(agendamentoId).first();
   if (!ag) throw new ErroRegra('agendamento_inexistente');
   const valor = ag.forma_pagamento === 'sinal' ? Math.round(ag.preco_centavos * 0.3) : ag.preco_centavos;
   const compId = novoId('cp'), pagId = novoId('pg');
   try {
     await lote(db, [
+      // Vale o momento em que o envio foi AUTORIZADO (iniciado); sem autorização, o momento em que chegou.
       afirmar(db, `EXISTS (SELECT 1 FROM agendamentos WHERE id = ? AND status = 'aguardando_comprovante' AND prazo_final_em >= ?)`,
-              agendamentoId, recebidoEmMs),
+              agendamentoId, emitidaEmMs ?? recebidoEmMs),
+      ...extras,
       db.prepare('INSERT INTO comprovantes (id, agendamento_id, objeto, etag, tipo, tamanho, recebido_em) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .bind(compId, agendamentoId, objeto, etag, tipo, tamanho, recebidoEmMs),
       db.prepare(`INSERT INTO pagamentos (id, agendamento_id, tipo, valor_centavos, status, comprovante_id, criado_em)
@@ -106,7 +120,7 @@ export async function registrarComprovante(db, { agendamentoId, objeto, etag, ti
  * Reagendamento atômico: libera as casas antigas, ocupa as novas, muda o agendamento e grava o histórico
  * num único lote. Se o novo horário estiver ocupado (ou o agendamento tiver mudado), nada muda.
  */
-export async function reagendar(db, { agendamentoId, novoDia, novoInicio, quem, equipe, agoraMs }) {
+export async function reagendar(db, { agendamentoId, novoDia, novoInicio, quem, equipe, agoraMs, extras = [] }) {
   const ag = await db.prepare('SELECT * FROM agendamentos WHERE id = ?').bind(agendamentoId).first();
   if (!ag || !ATIVOS.includes(ag.status)) throw new ErroRegra('agendamento_nao_reagendavel');
   const s = await servico(db, ag.servico_id);
@@ -114,6 +128,7 @@ export async function reagendar(db, { agendamentoId, novoDia, novoInicio, quem, 
                                   duracao: s.duracao_min, agoraMs, equipe });
   const cmds = [
     afirmar(db, `EXISTS (SELECT 1 FROM agendamentos WHERE id = ? AND versao = ?)`, agendamentoId, ag.versao),
+    ...extras,
     db.prepare('DELETE FROM casas_ocupadas WHERE agendamento_id = ?').bind(agendamentoId),
     ...casasDoAtendimento(novoInicio, fim).map(m => inserirCasa(db, novoDia, m, agendamentoId)),
     db.prepare(`UPDATE agendamentos SET dia = ?, inicio_min = ?, fim_min = ?, presenca_confirmada = 0, atraso_min = NULL,

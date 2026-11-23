@@ -49,7 +49,7 @@ export async function garantirEsquema(db, agoraMs = Date.now()) {
   } catch (e) {
     // Outro pedido pode ter aplicado a mesma migração ao mesmo tempo: aí está tudo certo.
     const ja = await db.prepare('SELECT 1 ok FROM migracoes_aplicadas WHERE nome = ?').bind(m.nome).first();
-    if (!ja) throw e;
+    if (!ja) throw Object.assign(new Error('falha_na_migracao'), { migracao: m.nome, detalhe: String(e?.message || e).slice(0, 200) });
   }
   if (pendentes.length === 1) { prontos.add(db); return true; }
   return false;

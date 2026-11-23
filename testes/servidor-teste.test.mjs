@@ -16,7 +16,7 @@ function ambiente(db = new D1Local()) {
   let agora = Date.UTC(2026, 10, 22, 15, 0);
   const relogio = { get: () => agora, andar: ms => { agora += ms; } };
   const app = criarApp({ verif: verificadorTeste, agora: relogio.get });
-  const env = { DB: db, ORIGEM, RP_ID, MODO: 'teste-passkey', INSTALACAO_SEGREDO: SEGREDO };
+  const env = { DB: db, ORIGEM, RP_ID, MODO: 'homologacao', INSTALACAO_SEGREDO: SEGREDO };
   const chamar = async (metodo, caminho, { corpo, cookie, origem = ORIGEM } = {}) => {
     const h = { 'CF-Connecting-IP': '10.0.0.9' };
     if (metodo !== 'GET') { h['Content-Type'] = 'application/json'; if (origem) h.Origin = origem; }
@@ -48,11 +48,17 @@ test('src/migracoes.gerado.js está em dia com migrations/*.sql', () => {
 
 test('instalação automática: banco vazio vira banco completo, uma migração por pedido, igual ao esperado', async () => {
   const amb = ambiente();
-  const r1 = await amb.chamar('GET', '/api/admin/eu');
-  assert.deepEqual([r1.status, r1.dados.erro], [503, 'instalando_banco']);
-  const r2 = await amb.chamar('GET', '/api/admin/eu');
-  assert.equal(r2.status, 401, 'banco pronto: agora é a regra normal (sem sessão)');
-  assert.equal(amb.db.consultas < 50, true);
+  // o limite gratuito é de 50 consultas POR PEDIDO: medimos cada pedido da instalação
+  const porPedido = [];
+  let r;
+  for (let i = 0; i < 5; i++) {
+    const antes = amb.db.consultas; r = await amb.chamar('GET', '/api/admin/eu'); porPedido.push(amb.db.consultas - antes);
+    if (r.status !== 503) break;
+    assert.equal(r.dados.erro, 'instalando_banco');
+  }
+  assert.equal(r.status, 401, 'banco pronto: agora é a regra normal (sem sessão)');
+  assert.equal(porPedido.length, 3, '3 migrações: 2 pedidos respondem "instalando"; o 3º aplica a última e segue normal');
+  assert.ok(Math.max(...porPedido) < 50, `consultas por pedido: ${porPedido}`);
   const limpo = t => (t || '').replace(/--[^\n]*/g, '').replace(/\s+/g, ' ').trim();
   const esquema = d => d.db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name <> 'migracoes_aplicadas' ORDER BY name`)
     .all().map(r => ({ type: r.type, name: r.name, sql: limpo(r.sql) }));
@@ -61,7 +67,7 @@ test('instalação automática: banco vazio vira banco completo, uma migração 
 });
 
 test('cada migração cabe no limite gratuito de 50 consultas por pedido', () => {
-  for (const f of ['0001_inicial.sql', '0002_dados_iniciais.sql']) {
+  for (const f of ['0001_inicial.sql', '0002_dados_iniciais.sql', '0003_operacao.sql']) {
     const n = dividirSql(readFileSync(new URL(`../migrations/${f}`, import.meta.url), 'utf8')).length;
     assert.ok(n + 4 <= 50, `${f}: ${n} comandos`);
   }
@@ -72,7 +78,7 @@ test('dois pedidos instalando ao mesmo tempo: nada duplica nem quebra', async ()
   await Promise.all(Array.from({ length: 6 }, () => amb.chamar('GET', '/api/admin/eu')));
   const r = await ate200(amb, 'GET', '/api/admin/eu');
   assert.equal(r.status, 401);
-  assert.equal(amb.db.db.prepare('SELECT COUNT(*) n FROM migracoes_aplicadas').get().n, 2);
+  assert.equal(amb.db.db.prepare('SELECT COUNT(*) n FROM migracoes_aplicadas').get().n, 3);
 });
 
 test('convites por segredo de instalação: segredo errado recusado; porta fecha quando as duas têm passkey', async () => {
@@ -125,7 +131,7 @@ test('prazo no servidor real: comprovante fictício aos 16 min aceito; outra res
   assert.equal((await amb.chamar('POST', '/api/teste/comprovante-ficticio', { cookie, corpo: { codigo: r1.codigo } })).dados.status, 'em_analise');
   amb.relogio.andar(2 * MIN);
   assert.equal((await amb.chamar('POST', '/api/teste/comprovante-ficticio', { cookie, corpo: { codigo: r2.codigo } })).dados.erro, 'prazo_encerrado');
-  amb.relogio.andar(1 * MIN + 1);
+  amb.relogio.andar(2 * MIN + 1);
   const sit = (await amb.chamar('GET', '/api/teste/situacao', { cookie })).dados;
   const st = Object.fromEntries(sit.reservas.map(x => [x.codigo, [x.status, x.casas]]));
   assert.deepEqual(st[r1.codigo], ['em_analise', 11]);
@@ -135,14 +141,14 @@ test('prazo no servidor real: comprovante fictício aos 16 min aceito; outra res
   assert.equal(sit2.reservas.find(x => x.codigo === r1.codigo).alerta_nivel, 1, 'aviso de 30 min');
 });
 
-test('teste 9 (servidor temporário): rotas de teste exigem sessão e só existem nesse modo', async () => {
+test('teste 9 (homologação): rotas de admin e de teste exigem sessão; ferramentas de teste só existem na homologação', async () => {
   const amb = ambiente();
   await primeiroAcesso(amb);
-  for (const r of ROTAS.filter(x => x.modos.includes('teste-passkey') && x.n !== NIVEL.PUBLICO)) {
+  for (const r of ROTAS.filter(x => x.modos.includes('homologacao') && x.n !== NIVEL.PUBLICO)) {
     const x = await amb.chamar(r.m, r.p, { corpo: {} });
     assert.equal(x.status, 401, `${r.m} ${r.p}`);
   }
-  for (const modo of ['completo', 'desligado']) {
+  for (const modo of ['completo', 'desligado', 'vitrine']) {
     const app = criarApp({ verif: verificadorTeste });
     for (const p of ['/api/teste/alvo', '/api/teste/situacao', '/api/instalacao/convites', '/api/teste/reserva-ficticia']) {
       const res = await app(new Request(ORIGEM + p, { method: p.includes('situacao') || p.includes('alvo') ? 'GET' : 'POST',
@@ -151,4 +157,24 @@ test('teste 9 (servidor temporário): rotas de teste exigem sessão e só existe
       assert.equal(res.status, 404, `${modo} ${p}`);
     }
   }
+});
+
+test('migração que falha no banco real: resposta clara (503 com o nome), nada aplicado pela metade', async () => {
+  const db = new D1Local();
+  const amb = ambiente(db);
+  await ate200(amb, 'GET', '/api/saude');
+  await amb.chamar('GET', '/api/admin/eu'); await amb.chamar('GET', '/api/admin/eu'); // 0001 e 0002 entram
+  // simula dados que impedem a 0003 (dois cadastros com o mesmo WhatsApp)
+  db.db.exec(`DELETE FROM migracoes_aplicadas WHERE nome = '0003_operacao'`);
+  db.db.exec(`DROP INDEX IF EXISTS clientes_whatsapp`);
+  for (const t of ['autoriz_agend', 'agend_cliente', 'pag_agend', 'comp_agend', 'comp_etag', 'bloq_dia', 'hist_agend', 'solic_status', 'reemb_agend', 'cred_cliente', 'notif_criada']) db.db.exec(`DROP INDEX IF EXISTS ${t}`);
+  db.db.exec(`DROP TABLE IF EXISTS autorizacoes_envio`);
+  db.db.exec(`INSERT INTO clientes (id, nome, whatsapp, criada_em) VALUES ('a', 'A', '99900000000', 0), ('b', 'B', '99900000000', 0)`);
+  const amb2 = ambiente(db); // processo novo (sem cache)
+  const { criarApp } = await import('../src/app.js');
+  const app = criarApp({ verif: verificadorTeste });
+  const r = await app(new Request(ORIGEM + '/api/admin/eu'), amb2.env);
+  const j = await r.json();
+  assert.deepEqual([r.status, j.erro, j.migracao], [503, 'falha_na_migracao', '0003_operacao']);
+  assert.equal(db.db.prepare(`SELECT COUNT(*) n FROM sqlite_master WHERE name = 'autorizacoes_envio'`).get().n, 0, 'lote atômico: nada da 0003 ficou');
 });

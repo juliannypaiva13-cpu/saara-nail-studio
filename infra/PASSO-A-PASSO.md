@@ -47,6 +47,16 @@ Confira se estes itens aparecem no repositório:
 
 Binding exigido pelo código: **`DB`**. O código usa `env.DB` em `src/app.js`, e o binding já está declarado no `wrangler.toml`.
 
+### 2.1 Armazenamento privado dos comprovantes (Workers KV, grátis, sem cartão)
+
+O R2 pede forma de pagamento na ativação. Por isso, os comprovantes ficam no **KV**: é privado (só o sistema acessa, não há endereço público) e o plano gratuito basta para o estúdio.
+
+1. Abra **Storage & Databases**, depois **KV**, depois **Create** (ou **Create namespace**). Nome: `saara-comprovantes`.
+2. Copie o **ID**: 32 letras e números.
+3. No `wrangler.toml`, troque `COLE_AQUI_O_ID_DO_KV` por esse ID e faça o commit.
+
+Binding exigido: **`COMPROVANTES`** (o código usa `env.COMPROVANTES` em `src/comprovantes.js`).
+
 ## 3. Criar o projeto Pages e conectar o GitHub
 
 1. Abra **Workers & Pages** e clique em **Create**. Escolha a aba **Pages** e depois **Import an existing Git repository** (ou **Connect to Git**).
@@ -71,7 +81,7 @@ Binding exigido pelo código: **`DB`**. O código usa `env.DB` em `src/app.js`, 
    - Se vier com algo a mais (por exemplo `saaranailstudio-4xk.pages.dev`), o nome estava ocupado.
    - Nesse caso, apague o projeto (**Settings**, depois **Delete project**) e me avise. Não use outro endereço sem autorização.
 6. Abra `https://saaranailstudio.pages.dev/api/saude`. O esperado é:
-   `{"ok":true,"modo":"desligado","banco":"não ligado","configuracao":"completa","reservasReais":false}`
+   `{"ok":true,"modo":"vitrine","banco":"não ligado","configuracao":"completa","reservasReais":false}`
    E `https://saaranailstudio.pages.dev` mostra "Sistema em preparação".
 
 ## 4. Travar a produção e liberar só o ramo de teste
@@ -86,11 +96,12 @@ As variáveis comuns já estão no `wrangler.toml`. Os valores não são inventa
 
 | Ambiente | Nome | Valor | Onde |
 |---|---|---|---|
-| Produção | `MODO` | `desligado` | `wrangler.toml` |
+| Produção | `MODO` | `vitrine` (site no ar, agendamento fechado) | `wrangler.toml` |
 | Produção | `ORIGEM` / `RP_ID` | `https://saaranailstudio.pages.dev` / `saaranailstudio.pages.dev` | `wrangler.toml` |
-| Prévia | `MODO` | `teste-passkey` | `wrangler.toml` |
+| Prévia | `MODO` | `homologacao` (sistema completo, só dados de teste) | `wrangler.toml` |
 | Prévia | `ORIGEM` / `RP_ID` | `https://teste-passkey.saaranailstudio.pages.dev` / `teste-passkey.saaranailstudio.pages.dev` | `wrangler.toml` |
 | Prévia | `DB` (banco) | `saara-nail-studio-db` + o seu Database ID | `wrangler.toml` |
+| Prévia | `COMPROVANTES` (KV) | `saara-comprovantes` + o ID do KV | `wrangler.toml` |
 
 **Cadastro manual no painel: só 1 segredo, e só na prévia.**
 
@@ -111,7 +122,9 @@ Para eu checar sem você me mandar valores:
 
 1. No GitHub, abra o seletor de ramos (**main**), digite `teste-passkey` e clique em **Create branch teste-passkey from main**.
 2. O Pages publica em `https://teste-passkey.saaranailstudio.pages.dev`. No log deve aparecer `✔ ramo: teste-passkey · dist: …, teste.js`.
-3. Abra `https://teste-passkey.saaranailstudio.pages.dev/api/saude`. O esperado é `"modo":"teste-passkey"`, `"banco":"ligado"` e `"reservasReais":false`.
+3. Abra `https://teste-passkey.saaranailstudio.pages.dev/api/saude`. O esperado é `"modo":"homologacao"`, `"banco":"ligado"` e `"reservasReais":false`.
+   No primeiro acesso, o sistema cria as tabelas em três pedidos seguidos. Se aparecer `"instalando_banco"`, recarregue a página.
+   Se aparecer `"falha_na_migracao"`, me mande a resposta inteira: nada foi aplicado pela metade.
    - Se aparecer `"banco":"não ligado"`, o `database_id` não foi salvo no `wrangler.toml` do ramo `teste-passkey`. Confira e faça um novo commit.
 4. Se você criou o segredo depois da publicação, abra **Deployments** e clique em **Retry deployment** na publicação do ramo.
 5. Siga `infra/ROTEIRO-DE-TESTES.md`.
@@ -122,7 +135,8 @@ Para eu checar sem você me mandar valores:
   - Produção: `desligado`. Prévia: `teste-passkey`, só com reservas "TESTE FICTÍCIO".
   - O build recusa `MODO = "completo"`.
 - **Protótipo:** fica em `prototipo/` e nunca entra no `dist/`.
-- **Rotinas automáticas** (`worker-cron/`), **comprovantes reais (R2)** e **Turnstile:** ficam para a Fase 3.
+- **Rotinas automáticas:** o Pages não tem agenda própria. A liberação de reservas vencidas e os avisos de 30 min, 2 h e 12 h rodam sempre que o painel é aberto e a cada reserva ou consulta de horários. O `worker-cron/` é opcional e não precisa ser publicado.
+- **Turnstile (proteção contra robôs):** obrigatório no modo `completo`, antes da liberação. Na homologação, sem a chave configurada, ele é dispensado.
 - **Banco de produção:** o `saara-nail-studio-db` recebe só dados de teste. Antes da Fase 5, decidimos se ele é zerado ou se criamos um banco limpo para a produção.
 
 ## 8. Desligar o servidor de teste ao final

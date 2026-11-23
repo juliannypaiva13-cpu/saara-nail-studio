@@ -11,7 +11,8 @@ export const ULTIMO_DIA = '2027-12-31';
 // Margem de processamento: um comprovante que chegou ao armazenamento até 17:00 pode levar alguns segundos
 // para ser registrado. A liberação automática espera essa margem para nunca derrubar um envio feito no prazo.
 // O que vale para aceitar é sempre a hora em que o arquivo chegou (relógio do servidor), nunca a do registro.
-export const MARGEM_PROCESSAMENTO_MS = 2 * 60e3;
+export const VALIDADE_ENVIO_MS = 2 * 60e3;          // autorização de envio do comprovante
+export const MARGEM_PROCESSAMENTO_MS = 3 * 60e3;   // ≥ validade do envio + folga: nunca libera com envio em andamento
 
 const fmt = new Intl.DateTimeFormat('en-CA', {
   timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -56,11 +57,12 @@ export function casasDoBloqueio(inicio, fim) {
 
 /** Períodos de expediente válidos para o dia (lista de [inicio, fim]). */
 export function periodosDoDia(expediente, dia) {
+  // Cada versão do expediente vale para a SEMANA inteira a partir de vigente_desde: um dia sem linhas na versão
+  // vigente está fechado (mesmo que uma versão antiga o tivesse aberto).
   const ds = diaSemana(dia);
-  const vigentes = expediente.filter(e => e.dia_semana === ds && e.vigente_desde <= dia);
-  if (!vigentes.length) return [];
-  const maisRecente = vigentes.reduce((a, e) => (e.vigente_desde > a ? e.vigente_desde : a), '');
-  return vigentes.filter(e => e.vigente_desde === maisRecente)
+  const versao = expediente.reduce((a, e) => (e.vigente_desde <= dia && e.vigente_desde > a ? e.vigente_desde : a), '');
+  if (!versao) return [];
+  return expediente.filter(e => e.vigente_desde === versao && e.dia_semana === ds)
     .map(e => [e.inicio_min, e.fim_min]).sort((a, b) => a[0] - b[0]);
 }
 

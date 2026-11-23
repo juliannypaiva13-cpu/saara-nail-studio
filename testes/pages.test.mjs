@@ -19,7 +19,8 @@ const UUID_FALSO = '00000000-0000-4000-8000-000000000000';
 function copiaDoRepositorio({ comDubleDaBiblioteca = false, idReal = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'pages-'));
   for (const f of readdirSync(RAIZ)) if (!['node_modules', 'dist'].includes(f)) cpSync(join(RAIZ, f), join(dir, f), { recursive: true });
-  if (idReal) writeFileSync(join(dir, 'wrangler.toml'), readFileSync(join(dir, 'wrangler.toml'), 'utf8').replace('COLE_AQUI_O_DATABASE_ID', UUID_FALSO));
+  if (idReal) writeFileSync(join(dir, 'wrangler.toml'), readFileSync(join(dir, 'wrangler.toml'), 'utf8')
+    .replace('COLE_AQUI_O_DATABASE_ID', UUID_FALSO).replace('COLE_AQUI_O_ID_DO_KV', '0123456789abcdef0123456789abcdef'));
   if (comDubleDaBiblioteca) {
     const lib = join(dir, 'node_modules/@simplewebauthn/server');
     mkdirSync(lib, { recursive: true });
@@ -31,17 +32,19 @@ function copiaDoRepositorio({ comDubleDaBiblioteca = false, idReal = false } = {
 }
 const build = (dir, env) => spawnSync('node', ['scripts/build.mjs'], { cwd: dir, env: { ...process.env, ...env }, encoding: 'utf8' });
 
-test('wrangler.toml é de Pages: produção desligada e sem banco; prévia com DB → saara-nail-studio-db', () => {
+test('wrangler.toml é de Pages: produção em vitrine e sem banco; homologação com DB → saara-nail-studio-db e KV de comprovantes', () => {
   const j = JSON.parse(execFileSync('python3', ['-c', 'import tomllib,json,sys;print(json.dumps(tomllib.load(open(sys.argv[1],"rb"))))', join(RAIZ, 'wrangler.toml')], { encoding: 'utf8' }));
   assert.equal(j.pages_build_output_dir, './dist');
   assert.equal(j.main, undefined, 'sem "main" (isso seria Worker)');
   assert.equal(j.assets, undefined, 'sem [assets] (isso seria Worker)');
-  assert.equal(j.vars.MODO, 'desligado');
+  assert.equal(j.vars.MODO, 'vitrine');
   assert.equal(j.d1_databases, undefined, 'produção sem banco');
-  assert.equal(j.env.preview.vars.MODO, 'teste-passkey');
+  assert.equal(j.env.preview.vars.MODO, 'homologacao');
   assert.equal(j.env.preview.vars.ORIGEM, 'https://teste-passkey.saaranailstudio.pages.dev');
   assert.equal(j.env.preview.vars.RP_ID, 'teste-passkey.saaranailstudio.pages.dev');
   assert.deepEqual(j.env.preview.d1_databases.map(d => [d.binding, d.database_name]), [['DB', 'saara-nail-studio-db']]);
+  assert.deepEqual(j.env.preview.kv_namespaces.map(k => k.binding), ['COMPROVANTES']);
+  assert.equal(j.kv_namespaces, undefined, 'produção sem armazenamento');
   assert.ok(j.compatibility_flags.includes('nodejs_compat'));
   assert.doesNotMatch(readFileSync(join(RAIZ, 'wrangler.toml'), 'utf8').replace(/#.*$/gm, ''), /SEGREDO|SECRET|TOKEN|SENHA/i, 'nenhum segredo no arquivo');
 });
@@ -81,25 +84,30 @@ test('Functions: importações resolvem, sem módulos do Node, só pacotes decla
   assert.deepEqual(r.pacotes, ['@simplewebauthn/server']);
 });
 
-test('ponto de entrada functions/api/[[rota]].js: produção desligada; prévia instala o banco e funciona', async () => {
+test('ponto de entrada functions/api/[[rota]].js: produção em vitrine (sem agendamento); homologação instala o banco e funciona', async () => {
   const dir = copiaDoRepositorio({ comDubleDaBiblioteca: true });
   const { onRequest } = await import(pathToFileURL(join(dir, 'functions/api/[[rota]].js')).href);
   const pedir = (url, env, init = {}) => onRequest({ request: new Request(url, init), env });
   // produção (variáveis do topo do wrangler.toml, sem banco)
-  const prod = { MODO: 'desligado', ORIGEM: 'https://saaranailstudio.pages.dev', RP_ID: 'saaranailstudio.pages.dev' };
+  const prod = { MODO: 'vitrine', ORIGEM: 'https://saaranailstudio.pages.dev', RP_ID: 'saaranailstudio.pages.dev' };
   const s = await (await pedir('https://saaranailstudio.pages.dev/api/saude', prod)).json();
-  assert.deepEqual(s, { ok: true, modo: 'desligado', banco: 'não ligado', configuracao: 'completa', reservasReais: false });
-  for (const p of ['/api/reservas', '/api/horarios', '/api/auth/login/opcoes', '/api/teste/alvo'])
-    assert.equal((await pedir(`https://saaranailstudio.pages.dev${p}`, prod, { method: p.includes('horarios') || p.includes('alvo') ? 'GET' : 'POST',
-      headers: { Origin: prod.ORIGEM, 'Content-Type': 'application/json' }, body: p.includes('horarios') || p.includes('alvo') ? undefined : '{}' })).status, 404, p);
+  assert.deepEqual(s, { ok: true, modo: 'vitrine', banco: 'não ligado', configuracao: 'completa', reservasReais: false });
+  const cfgPub = await (await pedir('https://saaranailstudio.pages.dev/api/publico/config', prod)).json();
+  assert.equal(cfgPub.reservasAbertas, false, 'vitrine: agendamento público fechado');
+  assert.deepEqual(cfgPub.servicos.map(x => [x.nome, x.preco_centavos, x.duracao_min]), [['Molde F1', 10000, 150], ['Postiça Realista', 5000, 120], ['Manicure Tradicional', 2500, 120]]);
+  for (const p of ['/api/reservas', '/api/horarios', '/api/auth/login/opcoes', '/api/teste/alvo', '/api/admin/painel', '/api/reservas/comprovante/autorizar'])
+    { const get = /horarios|alvo|painel/.test(p);
+      assert.equal((await pedir(`https://saaranailstudio.pages.dev${p}`, prod, { method: get ? 'GET' : 'POST',
+        headers: { Origin: prod.ORIGEM, 'Content-Type': 'application/json' }, body: get ? undefined : '{}' })).status, 404, p); }
   // prévia sem o banco ligado: erro explicativo, não erro interno
-  const semDb = { MODO: 'teste-passkey', ORIGEM: 'https://teste-passkey.saaranailstudio.pages.dev', RP_ID: 'teste-passkey.saaranailstudio.pages.dev' };
+  const semDb = { MODO: 'homologacao', ORIGEM: 'https://teste-passkey.saaranailstudio.pages.dev', RP_ID: 'teste-passkey.saaranailstudio.pages.dev' };
   const r0 = await pedir(`${semDb.ORIGEM}/api/admin/eu`, semDb);
   assert.deepEqual([r0.status, (await r0.json()).erro], [503, 'banco_nao_ligado']);
-  // prévia com banco vazio: instala em 2 pedidos, depois regra normal
+  // prévia com banco vazio: instala em 3 pedidos (uma migração por pedido), depois regra normal
   const prev = { ...semDb, DB: new D1Local() };
   const r1 = await pedir(`${prev.ORIGEM}/api/admin/eu`, prev);
   assert.equal(r1.status, 503);
+  await pedir(`${prev.ORIGEM}/api/admin/eu`, prev);
   const r2 = await pedir(`${prev.ORIGEM}/api/admin/eu`, prev);
   assert.equal(r2.status, 401);
   assert.equal(r2.headers.get('x-frame-options'), 'DENY');
@@ -118,7 +126,7 @@ test('banco preparado com "wrangler d1 migrations apply" é reconhecido (não ap
   const { criarApp } = await import('../src/app.js');
   const { verificadorTeste } = await import('./autenticador-falso.mjs');
   const app = criarApp({ verif: verificadorTeste });
-  const env = { DB: db, MODO: 'teste-passkey', ORIGEM: 'https://x.pages.dev', RP_ID: 'x.pages.dev' };
+  const env = { DB: db, MODO: 'homologacao', ORIGEM: 'https://x.pages.dev', RP_ID: 'x.pages.dev' };
   assert.equal((await app(new Request('https://x.pages.dev/api/admin/eu'), env)).status, 401);
   assert.equal(db.db.prepare('SELECT COUNT(*) n FROM servicos').get().n, 3, 'dados iniciais não duplicados');
 });
@@ -127,12 +135,12 @@ test('pagamentos: nenhum código confirma pagamento sozinho; reservas reais só 
   const fontes = [];
   const andar = d => { for (const f of readdirSync(d, { withFileTypes: true })) { const p = join(d, f.name); f.isDirectory() ? andar(p) : /\.(m?js)$/.test(f.name) && fontes.push(p); } };
   for (const d of ['src', 'functions', 'worker-cron']) andar(join(RAIZ, d));
-  for (const f of fontes.filter(x => !x.endsWith('migracoes.gerado.js'))) { // o esquema contém a REGRA (CHECK), não uma gravação
+  for (const f of fontes.filter(x => !/migracoes\.gerado\.js$|operacao\.js$/.test(x))) { // esquema = REGRA (CHECK); operacao.js = decisão manual da administradora
     const t = readFileSync(f, 'utf8');
     assert.doesNotMatch(t, /status\s*=\s*'confirmado'|'confirmado'\s*,\s*\?|VALUES[^;]*'confirmado'/i, `${f} grava pagamento confirmado`);
     assert.doesNotMatch(t, /MODO\s*[:=]\s*['"]completo/, `${f} liga o modo completo`);
   }
   const { ROTAS } = await import('../src/app.js');
-  for (const p of ['/api/reservas', '/api/horarios']) assert.deepEqual(ROTAS.find(r => r.p === p).modos, ['completo'], p);
+  for (const p of ['/api/reservas', '/api/horarios']) assert.deepEqual(ROTAS.find(r => r.p === p).modos, ['homologacao', 'completo'], p);
   for (const f of ['wrangler.toml', 'worker-cron/wrangler.toml']) assert.doesNotMatch(readFileSync(join(RAIZ, f), 'utf8'), /MODO\s*=\s*"completo"/, f);
 });

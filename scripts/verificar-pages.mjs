@@ -18,9 +18,13 @@ export function verificarConfiguracao(raiz, { exigirId }) {
   if (/MODO\s*=\s*"completo"/.test(t)) erros.push('MODO = "completo" não é permitido antes da Fase 5 (abriria reservas reais).');
   const ids = [...t.matchAll(/database_id\s*=\s*"([^"]*)"/g)].map(m => m[1]);
   const binds = [...t.matchAll(/binding\s*=\s*"([^"]*)"/g)].map(m => m[1]);
+  const kvIds = [...t.matchAll(/^\s*id\s*=\s*"([^"]*)"/gm)].map(m => m[1]);
   if (!binds.includes('DB')) erros.push('Falta a ligação do banco com binding = "DB".');
+  if (!binds.includes('COMPROVANTES')) erros.push('Falta a ligação do armazenamento de comprovantes com binding = "COMPROVANTES" (KV).');
   if (exigirId) for (const id of ids) if (!UUID.test(id))
     erros.push(`database_id "${id}" não é um ID de D1. Copie o ID de saara-nail-studio-db no painel (D1) e cole no wrangler.toml.`);
+  if (exigirId) for (const id of kvIds) if (!/^[0-9a-f]{32}$/i.test(id))
+    erros.push(`id do KV "${id}" não é um ID de KV. Copie o ID de saara-comprovantes no painel (KV) e cole no wrangler.toml.`);
   return erros;
 }
 
